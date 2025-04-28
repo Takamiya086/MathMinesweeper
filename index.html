@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>数学扫雷</title>
+    <link rel="stylesheet" type="text/css" href="main.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1 class="title">数学扫雷</h1>
+      <div id="grid" class="grid"></div>
+      <div class="button-area">
+        <button id="restart" class="button-pro">重新开始</button>
+        <button id="go" class="button-pro">查看仓库</button>
+      </div>
+    </div>
+
+    <script>
+      const GRID_SIZE = 9;
+      const MINES_COUNT = 10;
+      let gameOver = false;
+      let isFirstClick = true;
+
+      const gridElement = document.getElementById("grid");
+      const restartBtn = document.getElementById("restart");
+      const goBtn = document.getElementById("go");
+      const pData = [[] * 9];
+
+      // 拿到json的数学问题
+      function getProblems(path, index) {
+        return fetch(path)
+          .then((response) => {
+            if (!response.ok) throw new Error("网络响应异常");
+            return response.json();
+          })
+          .then((data) => {
+            pData[index] = shuffle(data.problems); // 按索引存储数据
+          })
+          .catch((error) => {
+            console.error("加载JSON出错:", error);
+            pData[index] = undefined; // 错误时存储undefined
+          });
+      }
+
+      const promises = [];
+      for (let i = 1; i <= 8; i++) {
+        // 使用数字类型
+        const path = `lib/${i}/Problems.json`;
+        promises.push(getProblems(path, i)); // 保存Promise
+      }
+
+      // 完成承诺
+      Promise.all(promises)
+        .then(() => {
+          console.log("所有数据加载完成：", pData);
+        })
+        .catch((error) => {
+          console.error("部分请求失败：", error);
+        });
+
+      // 初始化游戏
+      function initGame() {
+        gameOver = false;
+        isFirstClick = true;
+        gridElement.innerHTML = "";
+
+        // 创建格子
+        for (let i = 0; i < GRID_SIZE; i++) {
+          for (let j = 0; j < GRID_SIZE; j++) {
+            const cell = document.createElement("div");
+            cell.className = "cell";
+            cell.dataset.row = i;
+            cell.dataset.col = j;
+            cell.addEventListener("click", handleLeftClick);
+            cell.addEventListener("contextmenu", handleRightClick);
+            gridElement.appendChild(cell);
+          }
+        }
+      }
+
+      // 生成地雷
+      function generateMines(firstRow, firstCol) {
+        const positions = [];
+
+        // 生成所有可能的位置
+        for (let i = 0; i < GRID_SIZE; i++) {
+          for (let j = 0; j < GRID_SIZE; j++) {
+            if (i !== firstRow || j !== firstCol) {
+              positions.push({ row: i, col: j });
+            }
+          }
+        }
+
+        // 随机选择雷的位置
+        for (let i = positions.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [positions[i], positions[j]] = [positions[j], positions[i]];
+        }
+
+        // 放置地雷
+        for (let i = 0; i < MINES_COUNT; i++) {
+          const { row, col } = positions[i];
+          const cell = getCell(row, col);
+          cell.dataset.mine = true;
+        }
+
+        // 计算周围雷数
+        calculateNumbers();
+      }
+
+      // 计算周围雷数
+      function calculateNumbers() {
+        for (let i = 0; i < GRID_SIZE; i++) {
+          for (let j = 0; j < GRID_SIZE; j++) {
+            const cell = getCell(i, j);
+            if (!cell.dataset.mine) {
+              let count = 0;
+              for (let di = -1; di <= 1; di++) {
+                for (let dj = -1; dj <= 1; dj++) {
+                  const ni = i + di;
+                  const nj = j + dj;
+                  if (
+                    ni >= 0 &&
+                    ni < GRID_SIZE &&
+                    nj >= 0 &&
+                    nj < GRID_SIZE &&
+                    getCell(ni, nj).dataset.mine === "true"
+                  ) {
+                    count++;
+                  }
+                }
+              }
+              if (count > 0) cell.dataset.number = count;
+            }
+          }
+        }
+      }
+
+      // 处理左键点击
+      function handleLeftClick(e) {
+        if (gameOver) return;
+        const cell = e.target;
+        const row = parseInt(cell.dataset.row);
+        const col = parseInt(cell.dataset.col);
+
+        if (isFirstClick) {
+          isFirstClick = false;
+          generateMines(row, col);
+        }
+
+        if (cell.dataset.flag) return;
+
+        if (cell.dataset.mine === "true") {
+          gameOver = true;
+          revealAllMines();
+          alert("你失败了");
+          return;
+        }
+
+        if (cell.dataset.number && !cell.classList.contains("opened")) {
+          promptProblem(cell.dataset.number);
+        }
+        openCell(row, col);
+
+        if (checkWin()) {
+          gameOver = true;
+          alert("你获胜了");
+        }
+      }
+
+      // 处理右键点击
+      function handleRightClick(e) {
+        e.preventDefault();
+        if (gameOver) return;
+        const cell = e.target;
+        if (!cell.classList.contains("opened")) {
+          if (!cell.dataset.flag && !cell.dataset.question) {
+            cell.dataset.flag = "true";
+            cell.classList.add("flag");
+          } else {
+            delete cell.dataset.flag;
+            delete cell.dataset.question;
+            cell.classList.remove("flag");
+          }
+        }
+      }
+
+      // 显示题目函数
+      function promptProblem(answer) {
+        const find = parseInt(answer);
+        let user = prompt(
+          pData[find][Math.floor(Math.random() * pData[find].length)]
+        );
+        while (user != answer) {
+          alert("作答错误");
+          user = prompt(
+            pData[find][Math.floor(Math.random() * pData[find].length)]
+          );
+        }
+        return;
+      }
+
+      // 打开格子
+      function openCell(row, col) {
+        const cell = getCell(row, col);
+        if (cell.classList.contains("opened")) return;
+
+        cell.classList.add("opened");
+        if (cell.dataset.number) {
+          cell.textContent = cell.dataset.number;
+          cell.classList.add(`number-${cell.dataset.number}`);
+        }
+
+        // 如果周围没有雷，递归打开相邻格子
+        if (!cell.dataset.number) {
+          for (let di = -1; di <= 1; di++) {
+            for (let dj = -1; dj <= 1; dj++) {
+              const ni = row + di;
+              const nj = col + dj;
+              if (ni >= 0 && ni < GRID_SIZE && nj >= 0 && nj < GRID_SIZE) {
+                const neighbor = getCell(ni, nj);
+                if (!neighbor.classList.contains("opened")) {
+                  openCell(ni, nj);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // 显示所有地雷
+      function revealAllMines() {
+        document.querySelectorAll(".cell").forEach((cell) => {
+          if (cell.dataset.mine === "true") {
+            cell.classList.add("mine");
+          }
+        });
+      }
+
+      // 检查胜利条件
+      function checkWin() {
+        const cells = document.querySelectorAll(
+          '.cell:not([data-mine="true"])'
+        );
+        return Array.from(cells).every((cell) =>
+          cell.classList.contains("opened")
+        );
+      }
+
+      // 获取格子元素
+      function getCell(row, col) {
+        return document.querySelector(
+          `.cell[data-row="${row}"][data-col="${col}"]`
+        );
+      }
+
+      // 重新开始游戏
+      restartBtn.addEventListener("click", initGame);
+
+      // 跳转仓库
+      function goToRepository() {
+        // TODO github
+        window.open("https://www.www.bing.com");
+      }
+      goBtn.addEventListener("click", goToRepository);
+
+      // 洗牌算法
+      function shuffle(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+      }
+
+      // 初始化游戏
+      initGame();
+    </script>
+  </body>
+</html>
